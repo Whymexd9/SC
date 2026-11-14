@@ -85,6 +85,7 @@ struct Program {
 
 struct Framebuffer {
     GLuint color[8] = {};
+    std::vector<GLenum> drawBuffers{GL_COLOR_ATTACHMENT0}; // glDrawBuffers is framebuffer state (GLES 3.0 4.2.1)
 };
 
 struct BufferBinding {
@@ -121,7 +122,6 @@ struct Context {
     GLint viewport[4] = {0, 0, 1, 1}, scissor[4] = {0, 0, 1, 1};
     bool blend = false, scissorTest = false;
     GLenum blendEquation = GL_FUNC_ADD, blendSrc = GL_ONE, blendDst = GL_ZERO;
-    std::vector<GLenum> drawBuffers{GL_COLOR_ATTACHMENT0};
 };
 
 std::recursive_mutex gLock;
@@ -1135,7 +1135,8 @@ void glFramebufferTexture2D(GLenum target, GLenum attachment, GLenum, GLuint tex
 GLenum glCheckFramebufferStatus(GLenum) { return GL_FRAMEBUFFER_COMPLETE; }
 void glReadBuffer(GLenum) {}
 void glDrawBuffers(GLsizei n, const GLenum* bufs) {
-    if (Context* c = ctx()) c->drawBuffers.assign(bufs, bufs + std::max<GLsizei>(n, 0));
+    Guard g(gLock);
+    if (Context* c = ctx()) gFramebuffers[c->drawFb].drawBuffers.assign(bufs, bufs + std::max<GLsizei>(n, 0));
 }
 void glInvalidateFramebuffer(GLenum, GLsizei, const GLenum*) {}
 void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void* pixels) {
@@ -1238,7 +1239,7 @@ void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
     auto fb = gFramebuffers.find(c->drawFb);
     if (fb == gFramebuffers.end()) { fail(GL_INVALID_FRAMEBUFFER_OPERATION); return; }
     std::vector<id<MTLTexture>> targets;
-    for (GLenum b : c->drawBuffers) {
+    for (GLenum b : fb->second.drawBuffers) {
         const GLuint i = b - GL_COLOR_ATTACHMENT0;
         auto t = b == GL_NONE || i >= 8 ? gTextures.end() : gTextures.find(fb->second.color[i]);
         targets.push_back(t == gTextures.end() ? nil : t->second.mtl);
